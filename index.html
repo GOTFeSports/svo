@@ -701,6 +701,16 @@ textarea{height:70px;width:100%;box-sizing:border-box;font-size:11px}
 <div class="box" id="opt"></div>
 <div class="box" id="info" style="display:none"></div>
 <b>События</b><div id="log" class="sm"></div>
+<b>ИИ-командование</b>
+<div class="box" id="ai">
+<input id="aiurl" placeholder="URL API (Chat Completions или свой прокси)">
+<input id="aikey" type="password" placeholder="API-ключ (пусто, если ключ в прокси)">
+<div class="row"><input id="aimodel" placeholder="модель" style="flex:1;min-width:0"><select id="aiside"><option value="R">ИИ за РФ</option><option value="U">ИИ за ВСУ</option><option value="B">ИИ за обе</option></select></div>
+<div class="row"><label>Шаг, ч <input id="aihrs" type="number" min="1" max="48" value="6" style="width:52px"></label><label><input id="aifog" type="checkbox" checked> туман войны</label><label><input id="aihist" type="checkbox" checked> по истории</label></div>
+<button id="aigo">▶ Ход ИИ</button>
+<div id="aist" class="sm"></div><div id="ailog" class="sm"></div>
+<div class="sm">Ключ хранится только в вашем браузере. Для публичного сайта используйте прокси (worker.js).</div>
+</div>
 <b>Данные (JSON)</b>
 <textarea id="js" spellcheck="false"></textarea>
 <div class="row"><button id="ex">Экспорт</button><button id="im">Импорт</button><button id="rs">Сброс</button></div>
@@ -777,5 +787,72 @@ document.querySelectorAll('#tools button').forEach(b=>b.onclick=()=>setMode(b.da
 $('#ex').onclick=()=>{$('#js').value=JSON.stringify(S,null,1)};
 $('#im').onclick=()=>{try{const d=JSON.parse($('#js').value);if(!d.units||!d.zones||!d.ev)throw 0;S=d;sel=null;showSel();save();log();render()}catch(e){$('#js').value='Ошибка: неверный JSON состояния'}};
 $('#rs').onclick=()=>{init();sel=null;showSel();save();log();render()};
+/* ===== ИИ-командование ===== */
+const CITY=[['Киев',30.52,50.45],['Харьков',36.23,49.99],['Одесса',30.72,46.48],['Львов',24.03,49.84],['Днепр',35.05,48.46],['Донецк',37.8,48],['Луганск',39.3,48.57],['Мариуполь',37.55,47.1],['Запорожье',35.14,47.84],['Херсон',32.62,46.64],['Мелитополь',35.37,46.84],['Сумы',34.8,50.91],['Чернигов',31.29,51.5],['Николаев',31.99,46.97],['Симферополь',34.1,44.95],['Белгород',36.6,50.6],['Курск',36.2,51.73],['Гомель',31,52.43],['Ростов',39.7,47.23],['Полтава',34.55,49.59],['Винница',28.47,49.23],['Житомир',28.66,50.25],['Ровно',26.25,50.62],['Луцк',25.34,50.75],['Черкассы',32.06,49.44],['Кропивницкий',32.26,48.51],['Кременчуг',33.42,49.07],['Бердянск',36.79,46.75],['Северодонецк',38.49,48.95],['Бахмут',38,48.59],['Изюм',37.28,49.21],['Волчанск',36.94,50.29],['Гостомель',30.21,50.59],['Ирпень',30.25,50.52],['Бровары',30.79,50.51],['Нежин',31.89,51.05],['Конотоп',33.2,51.24],['Ахтырка',35.87,50.31],['Кривой Рог',33.39,47.91],['Мозырь',29.27,52.05],['Чернобыль',30.23,51.27],['Новая Каховка',33.37,46.76],['Геническ',34.82,46.17],['Джанкой',34.4,45.71],['Славянск',37.62,48.87],['Краматорск',37.56,48.72],['Лисичанск',38.43,48.9],['Волноваха',37.5,47.6],['Белая Церковь',30.1,49.8],['Умань',30.22,48.75],['Вознесенск',31.3,47.57],['Очаков',31.54,46.61]];
+const TYR={inf:'пехота',arm:'бронетехника',art:'артиллерия/РСЗО',air:'авиация',nav:'флот',hq:'штаб/резерв'};
+const SPD={inf:2.5,arm:5,art:2,air:150,nav:20,hq:3},RAD={inf:10,arm:14,art:8,air:0,nav:0,hq:0},rad=Math.PI/180;
+const AI={get(){try{return JSON.parse(localStorage.getItem('svo_ai'))||{}}catch(e){return{}}}};
+const AIF=['aiurl','aikey','aimodel','aiside','aihrs','aifog','aihist'];
+function aiLoad(){const c=AI.get();$('#aiurl').value=c.url||'https://api.deepseek.com/chat/completions';$('#aikey').value=c.key||'';$('#aimodel').value=c.model||'deepseek-chat';$('#aiside').value=c.side||'R';$('#aihrs').value=c.hrs||6;$('#aifog').checked=c.fog!==false;$('#aihist').checked=c.hist!==false}
+function aiSave(){try{localStorage.setItem('svo_ai',JSON.stringify({url:$('#aiurl').value.trim(),key:$('#aikey').value.trim(),model:$('#aimodel').value.trim(),side:$('#aiside').value,hrs:+$('#aihrs').value||6,fog:$('#aifog').checked,hist:$('#aihist').checked}))}catch(e){}}
+AIF.forEach(i=>$('#'+i).onchange=aiSave);aiLoad();
+const dist=(a,b)=>{const dl=(b[1]-a[1])*rad,dn=(b[0]-a[0])*rad,x=Math.sin(dl/2)**2+Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(dn/2)**2;return 12742*Math.asin(Math.sqrt(x))};
+const near=p=>{let b='',d=1e9;CITY.forEach(c=>{const k=dist(p,[c[1],c[2]]);if(k<d){d=k;b=c[0]}});return b+' ~'+Math.round(d)+' км'};
+const circle=(c,r)=>Array.from({length:24},(_,i)=>{const a=i/24*2*Math.PI,dl=r/111.2;return[+(c[0]+dl*Math.sin(a)/Math.cos(c[1]*rad)).toFixed(3),+(c[1]+dl*Math.cos(a)).toFixed(3)]});
+const okc=(lo,la)=>isFinite(lo)&&isFinite(la)&&lo>20&&lo<42&&la>43&&la<54;
+function snap(side,fog){
+ const own=S.units.filter(u=>u.sd==side),en=S.units.filter(u=>u.sd!=side).filter(e=>!fog||own.some(o=>dist([o.lo,o.la],[e.lo,e.la])<80));
+ const f=u=>({id:u.id,name:u.n,type:TYR[u.ty],pos:[+u.lo.toFixed(2),+u.la.toFixed(2)],near:near([u.lo,u.la]),state:u.st||''});
+ return{time:fmt(S.t),own:own.map(f),visible_enemy:en.map(f),control_zones:S.zones.filter(z=>z.auto).map(z=>({side:SDN[z.c]||'серая зона',pos:z.cen,r_km:z.rad})),recent_events:[...S.ev].sort((a,b)=>b.t-a.t).slice(0,8).map(e=>fmt(e.t)+' '+e.txt)}}
+function sysPrompt(side,hrs,hist){
+ const me=side=='R'?'Вооружённые силы РФ':'Вооружённые силы Украины';
+ return `Ты — ИИ-командующий стороны «${me}» в военной настольной симуляции (wargame) начала вторжения, старт 24.02.2022 04:00. Это игровая модель на карте. Каждый ход ты получаешь состояние в JSON и отдаёшь приказы СВОИМ юнитам на ближайшие ${hrs} ч.
+Правила:
+- Приказывай только юнитам из own (по id). Движок сам ограничивает скорость: пехота ~2.5 км/ч, броня ~5, артиллерия ~2, авиация ~150, флот ~20, штаб ~3. Задавай цели вдоль реальных направлений (дороги, города), не телепортируй.
+- action: advance (наступление), counterattack (отбив, контрудар), defend, hold, retreat. Для advance/counterattack/retreat укажи цель: "city" из списка или "to":[lon,lat].
+- gray: серая зона (спорная территория), до 3 кругов {lon,lat,r_km<=30}.
+- events: до 3 коротких игровых событий (бои, взятие/потеря пунктов, удары) с координатами.
+- state в юнитах — краткая заметка о состоянии; можешь обновлять её в поле note приказа.
+- ${hist?'Придерживайся правдоподобного развития по открытым данным о начале вторжения (направления ударов, темпы), допускаются отклонения.':'Играй на победу по правилам игры; историческое развитие необязательно.'}
+- Не больше 12 приказов. Не выдумывай id.
+Города (название lon lat): ${CITY.map(c=>c[0]+' '+c[1]+' '+c[2]).join('; ')}.
+Ответь ТОЛЬКО одним JSON без markdown: {"comment":"1-2 фразы замысла","orders":[{"unit":1,"action":"advance","city":"Киев","note":"необяз."}],"gray":[{"lon":0,"lat":0,"r_km":10}],"events":[{"text":"...","lon":0,"lat":0}]}`}
+function parseJ(t){t=String(t).replace(/```json|```/g,'').trim();try{return JSON.parse(t)}catch(e){const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a>=0&&b>a)try{return JSON.parse(t.slice(a,b+1))}catch(e2){}throw new Error('ответ не JSON: '+t.slice(0,120))}}
+async function ask(side,hrs){
+ const c=AI.get(),body={model:c.model,temperature:.7,max_tokens:2500,response_format:{type:'json_object'},messages:[{role:'system',content:sysPrompt(side,hrs,c.hist!==false)},{role:'user',content:JSON.stringify(snap(side,c.fog!==false))}]};
+ const h={'Content-Type':'application/json'};if(c.key)h.Authorization='Bearer '+c.key;
+ const go=()=>fetch(c.url,{method:'POST',headers:h,body:JSON.stringify(body)});
+ let r=await go();if(r.status==400){delete body.response_format;r=await go()}
+ if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,160));
+ const d=await r.json();return parseJ((d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'')}
+function claim(side,c,r){
+ S.zones=S.zones.filter(z=>!(z.auto&&z.c!=side&&z.c!='G'&&dist(z.cen,c)<r*.7));
+ if(S.zones.some(z=>z.auto&&z.c==side&&dist(z.cen,c)<3))return;
+ S.zones.push({id:nid++,c:side,auto:1,cen:[+c[0].toFixed(3),+c[1].toFixed(3)],rad:r,pts:circle(c,r)})}
+function applyPlan(side,plan,hrs){let n=0;
+ (Array.isArray(plan.orders)?plan.orders:[]).slice(0,12).forEach(o=>{
+  const u=S.units.find(x=>x.id==o.unit&&x.sd==side);if(!u)return;n++;
+  if(o.note)u.st=String(o.note).slice(0,60);
+  let t=null;if(o.city){const c=CITY.find(c=>c[0].toLowerCase()==String(o.city).toLowerCase());if(c)t=[c[1],c[2]]}
+  if(!t&&Array.isArray(o.to)&&okc(+o.to[0],+o.to[1]))t=[+o.to[0],+o.to[1]];
+  if(!t||o.action=='defend'||o.action=='hold')return;
+  const p=[u.lo,u.la],d=dist(p,t),f=d?Math.min(d,SPD[u.ty]*hrs)/d:0;
+  u.lo=p[0]+(t[0]-p[0])*f;u.la=p[1]+(t[1]-p[1])*f;
+  if((o.action=='advance'||o.action=='counterattack')&&RAD[u.ty])claim(side,[u.lo,u.la],RAD[u.ty])});
+ (Array.isArray(plan.gray)?plan.gray:[]).slice(0,3).forEach(g=>{if(okc(+g.lon,+g.lat)){const r=Math.min(30,Math.max(3,+g.r_km||10)),c=[+g.lon,+g.lat];S.zones.push({id:nid++,c:'G',auto:1,cen:c,rad:r,pts:circle(c,r)})}});
+ (Array.isArray(plan.events)?plan.events:[]).slice(0,3).forEach(e=>{if(e&&e.text&&okc(+e.lon,+e.lat))S.ev.push({id:nid++,t:S.t+hrs*18e5,lo:+e.lon,la:+e.lat,txt:String(e.text).slice(0,140)})});
+ const au=S.zones.filter(z=>z.auto);if(au.length>150)S.zones=S.zones.filter(z=>!au.slice(0,au.length-150).includes(z));
+ return n}
+const AIL=[];
+$('#aigo').onclick=async()=>{
+ aiSave();const c=AI.get(),hrs=Math.max(1,Math.min(48,c.hrs||6)),sides=c.side=='B'?['R','U']:[c.side||'R'],st=$('#aist'),btn=$('#aigo');
+ if(!c.url||!c.model){st.textContent='Укажи URL и модель.';return}
+ btn.disabled=true;st.textContent='ИИ думает…';
+ const res=await Promise.all(sides.map(s=>ask(s,hrs).then(p=>({s,p}),e=>({s,e}))));
+ let okn=0;const when=fmt(S.t);
+ res.forEach(r=>{if(r.e){AIL.unshift('['+when+'] '+SDN[r.s]+': ошибка — '+r.e.message);return}okn++;const n=applyPlan(r.s,r.p,hrs);AIL.unshift('['+when+'] '+SDN[r.s]+' ('+n+' приказов): '+String(r.p.comment||'').slice(0,300))});
+ if(okn){S.t+=hrs*36e5;save();sel=null;showSel();log();render()}
+ AIL.length=Math.min(AIL.length,8);$('#ailog').innerHTML=AIL.map(esc).join('<hr style="border:0;border-top:1px solid var(--ln)">');
+ st.textContent=okn?'Ход сделан, время +'+hrs+' ч.':'Ход не выполнен (см. ошибку ниже).';btn.disabled=false};
 setMode('sel');log();
 </script></body></html>
