@@ -709,6 +709,11 @@ textarea{height:70px;width:100%;box-sizing:border-box;font-size:11px}
 <div class="row"><input id="aimodel" placeholder="модель" style="flex:1;min-width:0"><select id="aiside"><option value="R">ИИ за РФ</option><option value="U">ИИ за ВСУ</option><option value="B">ИИ за обе</option></select></div>
 <div class="row"><label>Шаг, ч <input id="aihrs" type="number" min="1" max="48" value="6" style="width:52px"></label><label><input id="aifog" type="checkbox" checked> туман войны</label><label><input id="aihist" type="checkbox" checked> по истории</label></div>
 <button id="aigo">▶ Ход ИИ</button>
+<details><summary>Без API: вручную через чат</summary>
+<div class="sm">1) Скопируй промпт. 2) Вставь его в любой чат (например chat.deepseek.com, бесплатно). 3) Вставь ответ-JSON сюда и примени.</div>
+<div class="row"><button id="mcR">📋 Промпт за РФ</button><button id="mcU">📋 Промпт за ВСУ</button></div>
+<textarea id="mpaste" placeholder="Сюда вставь JSON-ответ нейронки"></textarea>
+<div class="row"><select id="mside"><option value="R">ответ за РФ</option><option value="U">ответ за ВСУ</option></select><label><input id="mt" type="checkbox" checked> сдвинуть время</label><button id="mapply">Применить</button></div></details>
 <div id="aist" class="sm"></div><div id="ailog" class="sm"></div>
 <div class="sm">Ключ хранится только в вашем браузере. Для публичного сайта используйте прокси (worker.js).</div>
 </div>
@@ -851,6 +856,10 @@ function applyPlan(side,plan,hrs){let n=0;
  const au=S.zones.filter(z=>z.auto);if(au.length>150)S.zones=S.zones.filter(z=>!au.slice(0,au.length-150).includes(z));
  return n}
 const AIL=[];
+const mhrs=()=>Math.max(1,Math.min(48,AI.get().hrs||6));
+['R','U'].forEach(s=>$('#mc'+s).onclick=async()=>{aiSave();const c=AI.get(),t=sysPrompt(s,mhrs(),c.hist!==false)+'\n\nСОСТОЯНИЕ:\n'+JSON.stringify(snap(s,c.fog!==false));
+ try{await navigator.clipboard.writeText(t);$('#aist').textContent='Промпт скопирован — вставь его в чат нейронки.'}catch(e){$('#mpaste').value=t;$('#aist').textContent='Не удалось скопировать автоматически: промпт лежит в поле ниже, скопируй вручную.'}});
+$('#mapply').onclick=()=>{try{const hrs=mhrs(),n=applyPlan($('#mside').value,parseJ($('#mpaste').value),hrs);if($('#mt').checked)S.t+=hrs*36e5;save();sel=null;showSel();log();render();$('#mpaste').value='';$('#aist').textContent='Ответ применён ('+n+' приказов).'+($('#mt').checked?' Время +'+hrs+' ч.':'')}catch(e){$('#aist').textContent='Ошибка: '+e.message}};
 $('#aigo').onclick=async()=>{
  aiSave();const c=AI.get(),hrs=Math.max(1,Math.min(48,c.hrs||6)),sides=c.side=='B'?['R','U']:[c.side||'R'],st=$('#aist'),btn=$('#aigo');
  if(!c.url||!c.model){st.textContent='Укажи URL и модель.';return}
