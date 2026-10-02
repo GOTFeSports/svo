@@ -703,7 +703,7 @@ textarea{height:70px;width:100%;box-sizing:border-box;font-size:11px}
 <b>События</b><div id="log" class="sm"></div>
 <b>ИИ-командование</b>
 <div class="box" id="ai">
-<select id="aipre"><option value="">Пресет провайдера…</option><option value="n1">OpenRouter · Nemotron 3 Super (бесплатно)</option><option value="n2">OpenRouter · Gemma 4 31B (бесплатно, быстрее)</option><option value="n3">OpenRouter · Nemotron 3 Ultra (бесплатно, мощнее)</option><option value="ds">DeepSeek (платно после гранта)</option></select>
+<select id="aipre"><option value="">Пресет провайдера…</option><option value="n1">OpenRouter · Nemotron 3 Super (бесплатно)</option><option value="n2">OpenRouter · Gemma 4 31B (бесплатно, быстрее)</option><option value="n3">OpenRouter · Nemotron 3 Ultra (бесплатно, мощнее)</option><option value="gq">Groq · gpt-oss-120b (бесплатно, быстро)</option><option value="ds">DeepSeek (платно после гранта)</option></select>
 <input id="aiurl" placeholder="URL API (Chat Completions или свой прокси)">
 <input id="aikey" type="password" placeholder="API-ключ (пусто, если ключ в прокси)">
 <div class="row"><input id="aimodel" placeholder="модель" style="flex:1;min-width:0"><select id="aiside"><option value="R">ИИ за РФ</option><option value="U">ИИ за ВСУ</option><option value="B">ИИ за обе</option></select></div>
@@ -798,7 +798,7 @@ function aiLoad(){const c=AI.get();$('#aiurl').value=c.url||'https://api.deepsee
 const hostOf=u=>{try{return new URL(u).hostname}catch(e){return u}};
 function aiSave(){try{const k=Object.assign({},AI.get().keys),u=$('#aiurl').value.trim();k[hostOf(u)]=$('#aikey').value.trim();localStorage.setItem('svo_ai',JSON.stringify({keys:k,url:u,key:$('#aikey').value.trim(),model:$('#aimodel').value.trim(),side:$('#aiside').value,hrs:+$('#aihrs').value||6,fog:$('#aifog').checked,hist:$('#aihist').checked}))}catch(e){}}
 AIF.forEach(i=>$('#'+i).onchange=aiSave);aiLoad();
-const PRE={ds:['https://api.deepseek.com/chat/completions','deepseek-flash'],n1:['https://openrouter.ai/api/v1/chat/completions','nvidia/nemotron-3-super-120b-a12b:free'],n2:['https://openrouter.ai/api/v1/chat/completions','google/gemma-4-31b-it:free'],n3:['https://openrouter.ai/api/v1/chat/completions','nvidia/nemotron-3-ultra-550b-a55b:free']};
+const PRE={ds:['https://api.deepseek.com/chat/completions','deepseek-flash'],gq:['https://api.groq.com/openai/v1/chat/completions','openai/gpt-oss-120b'],n1:['https://openrouter.ai/api/v1/chat/completions','nvidia/nemotron-3-super-120b-a12b:free'],n2:['https://openrouter.ai/api/v1/chat/completions','google/gemma-4-31b-it:free'],n3:['https://openrouter.ai/api/v1/chat/completions','nvidia/nemotron-3-ultra-550b-a55b:free']};
 $('#aipre').onchange=e=>{const p=PRE[e.target.value];if(!p)return;aiSave();const k=AI.get().keys||{};$('#aiurl').value=p[0];$('#aimodel').value=p[1];$('#aikey').value=k[hostOf(p[0])]||'';aiSave();e.target.value=''};
 const dist=(a,b)=>{const dl=(b[1]-a[1])*rad,dn=(b[0]-a[0])*rad,x=Math.sin(dl/2)**2+Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(dn/2)**2;return 12742*Math.asin(Math.sqrt(x))};
 const near=p=>{let b='',d=1e9;CITY.forEach(c=>{const k=dist(p,[c[1],c[2]]);if(k<d){d=k;b=c[0]}});return b+' ~'+Math.round(d)+' км'};
@@ -825,9 +825,11 @@ function parseJ(t){t=String(t).replace(/```json|```/g,'').trim();try{return JSON
 async function ask(side,hrs){
  const c=AI.get(),body={model:c.model,temperature:.7,max_tokens:/deepseek\.com/.test(c.url)?2500:4000,response_format:{type:'json_object'},messages:[{role:'system',content:sysPrompt(side,hrs,c.hist!==false)},{role:'user',content:JSON.stringify(snap(side,c.fog!==false))}]};
  if(/deepseek\.com/.test(c.url))body.thinking={type:'disabled'};
+ if(/groq\.com/.test(c.url)&&/gpt-oss/.test(c.model))body.reasoning_effort='low';
  const h={'Content-Type':'application/json'};if(c.key)h.Authorization='Bearer '+c.key;
  const go=()=>fetch(c.url,{method:'POST',headers:h,body:JSON.stringify(body)});
- let r=await go();if(r.status==400){delete body.response_format;r=await go()}
+ let r=await go();if(r.status==429){const w=Math.min(60,+r.headers.get('retry-after')||20);$('#aist').textContent='Лимит провайдера, жду '+w+' с…';await new Promise(f=>setTimeout(f,w*1000));r=await go()}
+ if(r.status==400){delete body.response_format;r=await go()}
  if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,160));
  const d=await r.json();return parseJ((d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'')}
 function claim(side,c,r){
@@ -853,7 +855,8 @@ $('#aigo').onclick=async()=>{
  aiSave();const c=AI.get(),hrs=Math.max(1,Math.min(48,c.hrs||6)),sides=c.side=='B'?['R','U']:[c.side||'R'],st=$('#aist'),btn=$('#aigo');
  if(!c.url||!c.model){st.textContent='Укажи URL и модель.';return}
  btn.disabled=true;st.textContent='ИИ думает…';
- const res=await Promise.all(sides.map(s=>ask(s,hrs).then(p=>({s,p}),e=>({s,e}))));
+ const one=s=>ask(s,hrs).then(p=>({s,p}),e=>({s,e}));let res;
+ if(/groq\.com/.test(c.url)){res=[];for(const s of sides)res.push(await one(s))}else res=await Promise.all(sides.map(one));
  let okn=0;const when=fmt(S.t);
  res.forEach(r=>{if(r.e){AIL.unshift('['+when+'] '+SDN[r.s]+': ошибка — '+r.e.message);return}okn++;const n=applyPlan(r.s,r.p,hrs);AIL.unshift('['+when+'] '+SDN[r.s]+' ('+n+' приказов): '+String(r.p.comment||'').slice(0,300))});
  if(okn){S.t+=hrs*36e5;save();sel=null;showSel();log();render()}
