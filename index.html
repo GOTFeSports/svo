@@ -741,7 +741,7 @@ function render(){
   L.polygon(z.pts.map(p=>[p[1],p[0]]),{color:on?'#2a5bd7':ZC[z.c],weight:on?3:2,fillColor:ZC[z.c],fillOpacity:.3,interactive:ed}).on('click',pickIt('z',z.id)).addTo(G);
   if(on&&ed)z.pts.forEach((p,i)=>L.marker([p[1],p[0]],{draggable:true,icon:L.divIcon({className:'',html:'<div class="v"></div>',iconSize:[12,12]})})
    .on('dragend',e=>{const c=e.target.getLatLng();z.pts[i]=[c.lng,c.lat];save();render()})
-   .on('contextmenu',()=>{if(z.pts.length>3){z.pts.splice(i,1);save();render()}}).addTo(G)))});
+   .on('contextmenu',()=>{if(z.pts.length>3){z.pts.splice(i,1);save();render()}}).addTo(G))});
  S.ev.forEach(v=>L.marker([v.la,v.lo],{draggable:ed,icon:L.divIcon({className:'',html:`<div class="e${isSel('e',v.id)?' sel':''}"><b>!</b></div>`,iconSize:[20,20]})})
   .bindTooltip(esc(v.txt)).on('click',pickIt('e',v.id)).on('dragend',e=>{const c=e.target.getLatLng();v.lo=c.lng;v.la=c.lat;save()}).addTo(G));
  S.units.forEach(u=>L.marker([u.la,u.lo],{draggable:ed,icon:L.divIcon({className:'',html:`<div class="u${isSel('u',u.id)?' sel':''}" style="background:${SC[u.sd]}">${TY[u.ty]}</div>`,iconSize:[34,22]})})
