@@ -811,12 +811,12 @@ map.on('click',e=>{const p=[e.latlng.lng,e.latlng.lat];
  save();render()});
 function showSel(){const b=$('#info'),o=sel&&find(sel);if(!o){b.style.display='none';return}b.style.display='';
  if(sel.k=='u')b.innerHTML=`<b>Юнит</b><input id="f1" value="${esc(o.n)}"><div class="row"><select id="f2">${opts(SDN,o.sd)}</select><select id="f3">${opts(TY,o.ty)}</select></div><input id="f4" placeholder="Численность / заметка" value="${esc(o.st)}"><div class="row"><label>Сила % <input id="f5" type="number" min="0" max="100" value="${Math.round(o.sg)}" style="width:58px"></label><label>Снабж. % <input id="f6" type="number" min="0" max="100" value="${Math.round(o.sp)}" style="width:58px"></label></div>${o.sd==S.me?`<div class="row"><select id="o1">${opts(ACT,(S.ord[o.id]||{}).a||'')}</select></div><div class="row"><button id="o2">🎯 Цель на карте</button><select id="o3"><option value="">город…</option>${PLACES.map(c=>`<option${(S.ord[o.id]||{}).c==c[0]?' selected':''}>${c[0]}</option>`).join('')}</select></div><div class="sm" id="o4">${ordTxt(S.ord[o.id])}</div>`:'<div class="sm">Приказы этой стороны задаёт ИИ-противник.</div>'}<button id="del">Удалить</button>`;
- if(sel.k=='z')b.innerHTML=`<b>Зона</b><select id="f2">${opts(ZN,o.c)}</select><button id="del">Удалить</button>`;
+ if(sel.k=='z')b.innerHTML=`<b>Зона</b><select id="f2">${opts(ZN,o.c)}</select><button id="zsm">Сгладить границу</button><button id="del">Удалить</button>`;
  if(sel.k=='e')b.innerHTML=`<b>Событие · ${fmt(o.t)}</b><input id="f1" value="${esc(o.txt)}"><button id="del">Удалить</button>`;
  if(sel.k=='c')b.innerHTML=`<b>Город: ${esc(sel.id)}</b><select id="f2">${opts(SDN,S.city[sel.id])}</select><span class="sm">Кто контролирует город (влияет на снабжение).</span>`;
  const bind=(id,fn)=>{const e=$('#'+id);if(e)e.oninput=()=>{fn(e.value);save();render();log()}};
  if(sel.k=='u'){bind('f1',v=>o.n=v);bind('f2',v=>o.sd=v);bind('f3',v=>o.ty=v);bind('f4',v=>o.st=v);bind('f5',v=>o.sg=Math.max(0,Math.min(100,+v||0)));bind('f6',v=>o.sp=Math.max(0,Math.min(100,+v||0)));if(o.sd==S.me)ordUI(o)}
- if(sel.k=='z')bind('f2',v=>repaintZone(o,v));if(sel.k=='c')bind('f2',v=>S.city[sel.id]=v);if(sel.k=='e')bind('f1',v=>o.txt=v);
+ if(sel.k=='z'){bind('f2',v=>repaintZone(o,v));$('#zsm').onclick=()=>{o.pts=smoothRing(o.pts);o.h=(o.h||[]).map(smoothRing);repaintZone(o,o.c)}}if(sel.k=='c')bind('f2',v=>S.city[sel.id]=v);if(sel.k=='e')bind('f1',v=>o.txt=v);
  if(sel.k!='c')$('#del').onclick=()=>{const l=sel.k=='u'?S.units:sel.k=='z'?S.zones:S.ev;l.splice(l.indexOf(o),1);sel=null;showSel();save();render();log()}}
 function log(){const l=$('#log');l.innerHTML=[...S.ev].sort((a,b)=>a.t-b.t).map(e=>`<div data-id="${e.id}"><b>${fmt(e.t)}</b> ${esc(e.txt)}</div>`).join('')||'Пока нет событий';
  l.querySelectorAll('div[data-id]').forEach(d=>d.onclick=()=>{const e=S.ev.find(o=>o.id==d.dataset.id);sel={k:'e',id:e.id};map.setView([e.la,e.lo],Math.max(map.getZoom(),8));showSel();render()})}
@@ -942,11 +942,38 @@ function applyJudge(j,hrs){if(!j||typeof j!=='object')throw new Error('пуст�
  (Array.isArray(j.events)?j.events:[]).slice(0,8).forEach(e=>{if(e&&e.text&&okc(+e.lon,+e.lat))S.ev.push({id:nid++,t:ts,lo:+e.lon,la:+e.lat,txt:String(e.text).slice(0,140)})});
  S.jl.push({t:S.t,who:'Судья',txt:String(j.summary||'(без пояснений)').slice(0,500)});if(S.jl.length>30)S.jl.splice(0,S.jl.length-30);
  return{tp,rep}}
+
+/* --- фронт по полю влияния: связные плавные области --- */
+const chaik=(r,n)=>{for(let k=0;k<n;k++){const o=[];for(let i=0;i<r.length;i++){const p=r[i],q=r[(i+1)%r.length];o.push([.75*p[0]+.25*q[0],.75*p[1]+.25*q[1]],[.25*p[0]+.75*q[0],.25*p[1]+.75*q[1]])}r=o}return r};
+const smoothRing=r=>{const c=simp(r.concat([r[0]]),.035).slice(0,-1);return c.length<3?r:chaik(c,2)};
+const segD=(p,a,b)=>{const x=b[0]-a[0],y=b[1]-a[1],l=x*x+y*y;let t=l?((p[0]-a[0])*x+(p[1]-a[1])*y)/l:0;t=Math.max(0,Math.min(1,t));return Math.hypot(p[0]-a[0]-t*x,p[1]-a[1]-t*y)};
+function terrain(hrs,p0){
+ const D=4,dx=D/kx,dy=D/111.2,lo0=21,la0=43.5,SIG={inf:14,arm:20,art:12,hq:6},MOD={advance:1.2,counterattack:1.2,defend:1.3,hold:1.1,retreat:.5};
+ const us=S.units.filter(u=>SIG[u.ty]&&u.sg>0);if(!us.length)return;
+ const X=i=>lo0+i*dx,Y=j=>la0+j*dy,lonM=52/kx,latM=52/111.2;let a=1e9,b=1e9,c=-1e9,d=-1e9;
+ us.forEach(u=>{const q=p0.get(u.id)||[u.lo,u.la];a=Math.min(a,u.lo,q[0]);c=Math.max(c,u.lo,q[0]);b=Math.min(b,u.la,q[1]);d=Math.max(d,u.la,q[1])});
+ const i0=Math.floor((a-lonM-lo0)/dx)-1,i1=Math.ceil((c+lonM-lo0)/dx)+1,j0=Math.floor((b-latM-la0)/dy)-1,j1=Math.ceil((d+latM-la0)/dy)+1,W=i1-i0+1,H=j1-j0+1;
+ if(W*H>150000)return;const idx=(i,j)=>(j-j0)*W+(i-i0),PR=new Float32Array(W*H),PU=new Float32Array(W*H);
+ us.forEach(u=>{const q=p0.get(u.id)||[u.lo,u.la],A=kmXY(q),B=kmXY([u.lo,u.la]),sg=SIG[u.ty],rc=sg*1.65,w=(u.sg/100)*(.4+.6*u.sp/100)*PW[u.ty]*(MOD[u.act]||1.1),arr=u.sd=='R'?PR:PU;
+  const ia=Math.max(i0,Math.floor(((Math.min(A[0],B[0])-rc)/kx-lo0)/dx)),ib=Math.min(i1,Math.ceil(((Math.max(A[0],B[0])+rc)/kx-lo0)/dx)),ja=Math.max(j0,Math.floor(((Math.min(A[1],B[1])-rc)/111.2-la0)/dy)),jb=Math.min(j1,Math.ceil(((Math.max(A[1],B[1])+rc)/111.2-la0)/dy));
+  for(let j=ja;j<=jb;j++)for(let i=ia;i<=ib;i++){const dd=segD(kmXY([X(i)+dx/2,Y(j)+dy/2]),A,B);if(dd<rc)arr[idx(i,j)]+=w*Math.exp(-((dd/sg)*(dd/sg)))}});
+ const bbs=S.zones.map(z=>bb(z.pts)),cache=new Map(),own=(i,j)=>{const k=j*100000+i;let o=cache.get(k);if(o!==undefined)return o;const p=[X(i)+dx/2,Y(j)+dy/2];o=0;
+  for(let z=S.zones.length-1;z>=0;z--){const B=bbs[z];if(p[0]<B[0]||p[0]>B[2]||p[1]<B[1]||p[1]>B[3])continue;if(inZone(p,S.zones[z])){o={R:1,U:2,G:3}[S.zones[z].c]||0;break}}cache.set(k,o);return o};
+ const jobs=[];[['R',PR,PU,1,2],['U',PU,PR,2,1]].forEach(([sd,Pw,Pl,me,en])=>{
+  const cand=(i,j)=>{if(i<i0||i>i1||j<j0||j>j1)return false;const k=idx(i,j),w=Pw[k];if(w<.15||w<=1.15*Pl[k]+.15)return false;const o=own(i,j);return o==3||o==en};
+  const seed=(i,j)=>{for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){if(!di&&!dj)continue;const o=own(i+di,j+dj);if(o==me||(sd=='R'&&o==0))return true}return false};
+  const seen=new Set(),q=[];for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)if(cand(i,j)&&seed(i,j)){seen.add(j*100000+i);q.push([i,j])}
+  while(q.length){const[i,j]=q.pop();for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){const ni=i+di,nj=j+dj,k=nj*100000+ni;if(!seen.has(k)&&cand(ni,nj)){seen.add(k);q.push([ni,nj])}}}
+  if(!seen.size)return;
+  const mask=new Set(seen);seen.forEach(k=>{const j=Math.floor(k/100000),i=k-j*100000;[[1,0],[-1,0],[0,1],[0,-1]].forEach(([di,dj])=>{const ni=i+di,nj=j+dj;if(own(ni,nj)==me)mask.add(nj*100000+ni)})});
+  const rows={};mask.forEach(k=>{const j=Math.floor(k/100000);(rows[j]=rows[j]||[]).push(k-j*100000)});const rects=[];
+  Object.keys(rows).forEach(j=>{const r=rows[j].sort((x,y)=>x-y);let s=r[0],p=r[0];for(let t=1;t<=r.length;t++){if(t<r.length&&r[t]==p+1){p=r[t];continue}rects.push([[X(s),Y(+j)],[X(p+1),Y(+j)],[X(p+1),Y(+j+1)],[X(s),Y(+j+1)]]);s=r[t];p=r[t]}});
+  try{pc.union(...rects.map(r=>[r])).forEach(P=>{const o=smoothRing(P[0].slice(0,-1));if(o.length<3)return;jobs.push([sd,[o,...P.slice(1).map(h=>smoothRing(h.slice(0,-1)))]])})}catch(e){}});jobs.forEach(([sd,poly])=>paint(sd,poly))}
 /* --- запасной вариант: приказы -> формулы --- */
-function runOrders(hrs){S.units.forEach(u=>{const o=(u.sd==S.me?S.ord:S.eord)[u.id];u.act=(o&&o.a)||'hold';
+function runOrders(hrs){const p0=new Map();S.units.forEach(u=>{const o=(u.sd==S.me?S.ord:S.eord)[u.id];u.act=(o&&o.a)||'hold';p0.set(u.id,[u.lo,u.la]);
  if(!o||!o.to||!['advance','counterattack','retreat'].includes(o.a))return;
- const p=[u.lo,u.la],d=dist(p,o.to);if(d<.5)return;const f=Math.min(d,SPD[u.ty]*hrs*(.3+.7*u.sp/100)*(u.sg<30?.5:1))/d,q=[p[0]+(o.to[0]-p[0])*f,p[1]+(o.to[1]-p[1])*f];
- u.lo=q[0];u.la=q[1];if(o.a!='retreat'&&WID[u.ty]&&d*f>2)paint(u.sd,[corridor(p,q,WID[u.ty])])})}
+ const p=[u.lo,u.la],d=dist(p,o.to);if(d<.5)return;const f=Math.min(d,SPD[u.ty]*hrs*(.3+.7*u.sp/100)*(u.sg<30?.5:1))/d;
+ u.lo=p[0]+(o.to[0]-p[0])*f;u.la=p[1]+(o.to[1]-p[1])*f});return p0}
 const PW={inf:1,arm:1.6,art:1.3,air:1.2,nav:.6,hq:.2},RNG={inf:10,arm:12,art:25,air:60,nav:20,hq:5};
 function resolve(hrs){
  const mk=(lo,la,txt)=>S.ev.push({id:nid++,t:S.t+hrs*18e5,lo,la,txt});
@@ -960,8 +987,7 @@ function resolve(hrs){
  S.units.forEach(u=>{if(dm[u.id])u.sg=Math.max(0,+(u.sg-dm[u.id]).toFixed(1))});
  Object.values(pr).sort((x,y)=>y.ab+y.ba-x.ab-x.ba).slice(0,3).forEach(p=>{if(p.ab+p.ba>=1.5)mk((p.a.lo+p.b.lo)/2,(p.a.la+p.b.la)/2,'Бой: '+p.a.n+' ↔ '+p.b.n+' — потери '+Math.round(p.ba)+'% / '+Math.round(p.ab)+'%')});
  S.units.filter(u=>u.sg<=0).forEach(u=>mk(u.lo,u.la,'Уничтожен: '+u.n+' ('+SDN[u.sd]+')'));S.units=S.units.filter(u=>u.sg>0);
- CITY.forEach(c=>{const p=[c[1],c[2]],pres={R:0,U:0};S.units.forEach(u=>{if((u.ty=='inf'||u.ty=='arm'||u.ty=='art')&&u.sg>=15&&dist([u.lo,u.la],p)<=8)pres[u.sd]+=u.sg});
-  const o=S.city[c[0]],e=o=='R'?'U':'R';if(pres[e]>0&&pres[o]==0){S.city[c[0]]=e;paint(e,[circle(p,6)]);mk(c[1],c[2],SDN[e]+' занимает '+c[0])}})}
+}
 /* --- история, счёт, журнал --- */
 const HK='svo4h';let HIST=[];try{HIST=JSON.parse(localStorage.getItem(HK))||[]}catch(e){HIST=[]}
 const hSave=()=>{try{localStorage.setItem(HK,JSON.stringify(HIST))}catch(e){HIST.splice(0,Math.max(0,HIST.length-4));try{localStorage.setItem(HK,JSON.stringify(HIST))}catch(e2){}}};
@@ -987,6 +1013,6 @@ $('#pbj').onclick=()=>put(judgePrompt());
 $('#pao').onclick=()=>{try{const n=applyOpp(parseJ($('#pin').value));$('#pin').value='';$('#pst').textContent='Приказы противника приняты: '+n+'.';save();render()}catch(e){$('#pst').textContent='Ошибка: '+e.message}};
 function endTurn(hrs){S.t+=hrs*36e5;S.ord={};S.eord={};sel=null;showSel();save();log();render()}
 $('#paj').onclick=()=>{const pre=hSnap(),hrs=cfg().hrs;try{const r=applyJudge(parseJ($('#pin').value),hrs);hPush(pre);endTurn(hrs);$('#pin').value='';$('#pst').textContent='Решение судьи применено, время +'+hrs+' ч. Полигонов: '+r.tp+'.'+(r.rep.length?' Замечания: '+r.rep.join('; '):'')}catch(e){S=JSON.parse(pre.s);fixState();render();$('#pst').textContent='Ошибка, ход не применён: '+e.message}};
-$('#pfm').onclick=()=>{const hrs=cfg().hrs;hPush(hSnap());runOrders(hrs);resolve(hrs);endTurn(hrs);$('#pst').textContent='Ход просчитан по формулам (+'+hrs+' ч).'};
+$('#pfm').onclick=()=>{const hrs=cfg().hrs;hPush(hSnap());const p0=runOrders(hrs);resolve(hrs);const b4={...S.city};try{terrain(hrs,p0)}catch(e){console.error(e)}syncCities();CITY.forEach(c=>{if(S.city[c[0]]!=b4[c[0]])S.ev.push({id:nid++,t:S.t+hrs*18e5,lo:c[1],la:c[2],txt:SDN[S.city[c[0]]]+' занимает '+c[0]})});endTurn(hrs);$('#pst').textContent='Ход просчитан по формулам (+'+hrs+' ч).'};
 fixState();setMode('sel');log();hView();
 </script></body></html>
